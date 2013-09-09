@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 module Network.SSH.Client.LibSSH2
   (-- * Types
    Session, Channel, KnownHosts,
@@ -24,27 +24,52 @@ module Network.SSH.Client.LibSSH2
   ) where
 
 import Control.Monad
+import Control.Applicative
 import Control.Exception as E
 import Network
 import Network.BSD
 import Network.Socket
 import System.IO
+import System.Environment
 import qualified Data.ByteString as BSS
 import qualified Data.ByteString.Char8 as BSSC
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Text as T
 
 import Network.SSH.Client.LibSSH2.Types
 import Network.SSH.Client.LibSSH2.Foreign
 
+
 -- | Similar to Network.connectTo, but does not socketToHandle.
 socketConnect :: String -> Int -> IO Socket
 socketConnect hostname port = do
+    maybeProxy <- extractProxy hostname
     proto <- getProtocolNumber "tcp"
-    bracketOnError (socket AF_INET Stream proto) (sClose)
-            (\sock -> do
+    bracketOnError (socket AF_INET Stream proto) sClose $ \sock ->
+        case maybeProxy of
+            Just (h, p) -> do
+              he <- getHostByName h
+              connect sock (SockAddrInet (fromIntegral p) (hostAddress he))
+              n <- send sock $ "CONNECT " ++ hostname ++ ":" ++ show port ++
+                               "HTTP/1.0\r\n\r\n"
+              (packet, len) <- recvLen sock 4096
+              return sock
+            _           -> do
               he <- getHostByName hostname
               connect sock (SockAddrInet (fromIntegral port) (hostAddress he))
-              return sock)
+              return sock
+  where
+    extractProxy _ = do
+        maybeProxy <- liftM2 (<|>) (lookupEnv "http_proxy")
+                                   (lookupEnv "HTTP_PROXY")
+        return $ {-- Mabye Monad --} do
+            proxy <- last . T.splitOn "http://" . T.pack <$> maybeProxy
+            case T.splitOn ":" proxy of
+                [h', p'] | p' == "" -> Just (T.unpack h', 80 :: Integer)
+                [h', p'] -> Just (T.unpack h', read $ T.unpack p')
+                _        -> Nothing -- bad proxy
+        -- TODO check if hostname is not in no_proxy
+
 
 -- | Execute some actions within SSH2 connection.
 -- Uses public key authentication.
@@ -204,4 +229,3 @@ withChannelBy createChannel extractChannel actions = do
   exitStatus <- channelExitStatus ch
   freeChannel ch
   return (exitStatus, result)
-
