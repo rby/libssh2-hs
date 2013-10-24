@@ -1,5 +1,5 @@
 Name:                libssh2-conduit
-Version:             0.2
+Version:             0.2.1
 
 Synopsis:            Conduit wrappers for libssh2 FFI bindings (see libssh2 package).
 
@@ -39,7 +39,7 @@ Library
                        resourcet >= 0.4.7,
                        bytestring >= 0.10,
                        monad-control >= 0.3.1,
-                       conduit >= 1.0.7, libssh2
+                       conduit >= 1.0.7, libssh2 >= 0.2.0.2
   
   -- Modules not exported by this package.
   -- Other-modules:       
